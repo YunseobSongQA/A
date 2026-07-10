@@ -51,19 +51,20 @@ async function readSlides(file) {
   );
 }
 
-// 슬라이드 1장 = TC 1줄
-function toTestCases(slides) {
-  return slides.map((texts, index) => ({
+// 슬라이드 1장 = TC 1줄. 틀(줄 수 + TC ID)만 만들고 칸은 비워둔다.
+// 슬라이드 글자는 엑셀에 넣지 않고, 기능 3에서 AI에게 넘겨 칸을 채우게 한다.
+function toTestCases(slideCount) {
+  return Array.from({ length: slideCount }, (_, index) => ({
     "TC ID": `TC-${String(index + 1).padStart(3, "0")}`,
-    "대분류": texts[0] ?? "", // 슬라이드 제목
-    "중분류": texts[1] ?? "", // 본문 첫 줄
+    "대분류": TODO,
+    "중분류": TODO,
     "테스트 시나리오": TODO,
     "사전조건": TODO,
     "테스트 절차": TODO,
     "기대 결과": TODO,
     "우선순위": TODO,
     "결과": "", // 테스트 해보고 Pass/Fail 적는 칸
-    "비고": texts.join(" / "), // 나중에 AI에게 넘길 슬라이드 원문
+    "비고": "",
   }));
 }
 
@@ -84,7 +85,7 @@ exportBtn.addEventListener("click", async () => {
   }
 
   statusText.textContent = "변환 중...";
-  const slides = await readSlides(file);
-  saveExcel(toTestCases(slides));
+  const slides = await readSlides(file); // 뽑은 글자는 기능 3(AI 변환)에서 쓴다
+  saveExcel(toTestCases(slides.length));
   statusText.textContent = `슬라이드 ${slides.length}장 → TC ${slides.length}줄 (testcases.xlsx 저장됨)`;
 });
