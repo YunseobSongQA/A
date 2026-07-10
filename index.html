@@ -1,5 +1,14 @@
+<meta charset="utf-8"> <!-- 없으면 한글이 깨진다 -->
+
 <!-- 기능 1: PRD 입력받기 -->
 <textarea id="prd-input"></textarea>
 <button id="read-btn">읽기</button>
 <p id="output"></p>
+<!-- 기능 2: 기획서(ppt) → 테스트케이스(excel) -->
+<input type="file" id="ppt-input" accept=".pptx">
+<button id="export-btn">엑셀로 내보내기</button>
+<p id="status"></p>
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="app.js"></script>
