@@ -1,3 +1,31 @@
+const API = "https://generativelanguage.googleapis.com/v1beta";
+
+// responseMimeType은 v1beta에만 있는 필드다. v1로 부르면 400이 난다
+const generate = (model, key, prompt) =>
+  fetch(`${API}/models/${model}:generateContent?key=${key}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json" // 결과물로 순수 JSON만 받도록 강제
+      }
+    })
+  });
+
+// 구글이 옛 모델을 계속 잘라내서 이름이 404가 난다. 그때는 키로 쓸 수 있는 모델을 직접 물어본다
+const findUsableModel = async (key) => {
+  const res = await fetch(`${API}/models?key=${key}`);
+  if (!res.ok) return null;
+  const { models = [] } = await res.json();
+  const usable = models
+    .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+    .map((m) => m.name.replace(/^models\//, ""))
+    .filter((n) => !/embedding|aqa|tts|image|live|vision/.test(n));
+  // 싸고 빠른 flash 우선, 없으면 아무거나
+  return usable.find((n) => n.includes("flash")) ?? usable[0] ?? null;
+};
+
 export async function onRequestPost(context) {
   try {
     const { request, env } = context;
@@ -9,19 +37,16 @@ export async function onRequestPost(context) {
       return new Response("서버 설정 오류: GEMINI_API_KEY가 없습니다.", { status: 500 });
     }
 
-    // responseMimeType은 v1beta에만 있는 필드다. v1로 부르면 400이 난다
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
+    // gemini-flash-latest는 구글이 최신 flash로 계속 옮겨주는 별칭이다
+    let response = await generate(env.GEMINI_MODEL ?? "gemini-flash-latest", GEMINI_KEY, prompt);
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json" // 결과물로 순수 JSON만 받도록 강제
-        }
-      })
-    });
+    if (response.status === 404) {
+      const fallback = await findUsableModel(GEMINI_KEY);
+      if (!fallback) {
+        return new Response(`구글 API 에러: ${await response.text()}`, { status: 404 });
+      }
+      response = await generate(fallback, GEMINI_KEY, prompt);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
