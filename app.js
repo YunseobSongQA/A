@@ -30,13 +30,13 @@ const readSlides = async (file) => {
 };
 
 // 슬라이드 1장 = TC 1줄. 설명 없이 JSON 배열만 받는다
-const askClaude = async (slides) => {
+const askGemini = async (slides) => {
   const prompt = `기획서 슬라이드다. 슬라이드 1장당 테스트케이스 1줄, 총 ${slides.length}줄을 만들어라.
 각 줄은 ${AI_COLUMNS.join(", ")} 키를 가진 JSON 객체다. 설명·코드펜스 없이 JSON 배열만 출력해라.
 
 ${slides.map((text, i) => `[슬라이드 ${i + 1}] ${text}`).join("\n")}`;
 
-  const res = await fetch("/api/claude", { method: "POST", body: JSON.stringify({ prompt }) });
+  const res = await fetch("/api/gemini", { method: "POST", body: JSON.stringify({ prompt }) });
   const text = await res.text();
   if (!res.ok) throw new Error(text);
   try { return JSON.parse(text); }
@@ -60,7 +60,7 @@ document.querySelector("#export-btn").onclick = async () => {
   try {
     status.textContent = "변환 중...";
     const slides = await step("PPT 읽기", () => readSlides(file));
-    const rows = toRows(await step("AI 변환", () => askClaude(slides)));
+    const rows = toRows(await step("AI 변환", () => askGemini(slides)));
     await step("엑셀 저장", () => saveExcel(rows));
     status.textContent = `슬라이드 ${slides.length}장 → TC ${rows.length}줄 (testcases.xlsx 저장됨)`;
   } catch (e) {
