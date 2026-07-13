@@ -16,17 +16,26 @@ const step = async (name, task) => {
   finally { console.timeEnd(name); }
 };
 
-// pptx는 zip → 슬라이드 XML의 <a:t> 글자만. DOMParser가 &amp; 같은 엔티티도 풀어준다
+// pptx 안에서 슬라이드 XML 경로만 골라 화면 순서대로 정렬한다
+const slidePaths = (zip) => {
+  const all = Object.keys(zip.files);
+  const slides = all.filter((path) => /^ppt\/slides\/slide\d+\.xml$/.test(path));
+  return slides.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); // slide2가 slide10보다 앞
+};
+
+// 슬라이드 1장의 글자. DOMParser가 &amp; 같은 엔티티도 풀어준다
+const readSlideText = async (zip, path) => {
+  const xml = await zip.file(path).async("text");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if (doc.querySelector("parsererror")) throw new Error(`${path} XML이 깨졌습니다`);
+  const textNodes = [...doc.getElementsByTagName("a:t")]; // <a:t>안녕</a:t> 안의 글자
+  return textNodes.map((node) => node.textContent).join(" ");
+};
+
 const readSlides = async (file) => {
   const zip = await JSZip.loadAsync(file);
-  const paths = Object.keys(zip.files)
-    .filter((path) => /^ppt\/slides\/slide\d+\.xml$/.test(path))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); // slide2가 slide10보다 앞
-  return Promise.all(paths.map(async (path) => {
-    const doc = new DOMParser().parseFromString(await zip.file(path).async("text"), "application/xml");
-    if (doc.querySelector("parsererror")) throw new Error(`${path} XML이 깨졌습니다`);
-    return [...doc.getElementsByTagName("a:t")].map((node) => node.textContent).join(" ");
-  }));
+  const paths = slidePaths(zip);
+  return Promise.all(paths.map((path) => readSlideText(zip, path)));
 };
 
 // 슬라이드 1장 = TC 1줄. 설명 없이 JSON 배열만 받는다
@@ -44,8 +53,18 @@ ${slides.map((text, i) => `[슬라이드 ${i + 1}] ${text}`).join("\n")}`;
 };
 
 // AI를 믿지 않는다: 모르는 열은 버리고, 빠진 열은 빈칸, TC ID는 다시 매기고, 결과/비고는 비운다
-const toRows = (list) => list.map((row, i) => Object.fromEntries(COLUMNS.map((c) => [c,
-  c === "TC ID" ? `TC-${String(i + 1).padStart(3, "0")}` : AI_COLUMNS.includes(c) ? String(row[c] ?? "") : ""])));
+const toCell = (column, row, index) => {
+  if (column === "TC ID") return `TC-${String(index + 1).padStart(3, "0")}`; // 번호는 우리가 매긴다
+  if (AI_COLUMNS.includes(column)) return String(row[column] ?? ""); // 빠진 열은 빈칸
+  return ""; // 결과·비고는 사람이 채운다
+};
+
+const toRow = (row, index) => {
+  const cells = COLUMNS.map((column) => [column, toCell(column, row, index)]);
+  return Object.fromEntries(cells);
+};
+
+const toRows = (list) => list.map(toRow);
 
 const saveExcel = (rows) => {
   const book = XLSX.utils.book_new();
