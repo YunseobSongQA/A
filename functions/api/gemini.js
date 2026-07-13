@@ -9,8 +9,8 @@ export async function onRequestPost(context) {
       return new Response("서버 설정 오류: GEMINI_API_KEY가 없습니다.", { status: 500 });
     }
 
-    // 구글 제미나이 2.5 flash 모델 호출 주소
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`;
+    // responseMimeType은 v1beta에만 있는 필드다. v1로 부르면 400이 난다
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
 
     const response = await fetch(url, {
       method: "POST",
@@ -29,7 +29,10 @@ export async function onRequestPost(context) {
     }
 
     const data = await response.json();
-    const aiText = data.candidates[0].content.parts[0].text;
+    const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!aiText) {
+      return new Response(`구글 API 응답에 결과가 없습니다: ${JSON.stringify(data)}`, { status: 502 });
+    }
 
     return new Response(aiText, {
       headers: { "Content-Type": "application/json; charset=utf-8" }
