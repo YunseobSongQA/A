@@ -1,91 +1,70 @@
 // 기능 1: PRD 입력받기
+document.querySelector("#read-btn").onclick = () => {
+  document.querySelector("#output").textContent = document.querySelector("#prd-input").value;
+};
 
-// 화면 요소 찾기
-const input = document.querySelector("#prd-input");
-const button = document.querySelector("#read-btn");
-const output = document.querySelector("#output");
+// 기능 2+3: 기획서(pptx) → Claude(키는 서버에) → 테스트케이스(xlsx)
+const COLUMNS = ["TC ID", "대분류", "중분류", "테스트 시나리오", "사전조건", "테스트 절차", "기대 결과", "우선순위", "결과", "비고"];
+const AI_COLUMNS = COLUMNS.slice(1, -2); // TC ID는 우리가 매기고, 결과/비고는 사람이 적는다
+const status = document.querySelector("#status");
 
-// 버튼을 누르면 입력창 글자를 읽어와 화면에 보여주기
-button.addEventListener("click", () => {
-  const prdText = input.value; // 입력창 글자 가져오기
-  output.textContent = prdText; // 읽은 값 확인
-});
+// 단계마다 이름·소요시간·에러를 남긴다 → 어디서 터졌는지 바로 보인다
+const step = async (name, task) => {
+  console.time(name);
+  try { return await task(); }
+  catch (e) { throw new Error(`${name} 단계에서 실패했습니다: ${e.message}`, { cause: e }); }
+  finally { console.timeEnd(name); }
+};
 
-// 기능 2: 기획서(ppt) → 테스트케이스(excel) 틀 만들기
-
-// 화면 요소 찾기
-const pptInput = document.querySelector("#ppt-input");
-const exportBtn = document.querySelector("#export-btn");
-const statusText = document.querySelector("#status");
-
-// TC 표의 큰 틀은 하드코딩. 빈 칸은 나중에 AI가 채운다.
-const TC_COLUMNS = [
-  "TC ID", "대분류", "중분류", "테스트 시나리오", "사전조건",
-  "테스트 절차", "기대 결과", "우선순위", "결과", "비고",
-];
-const TODO = "(AI 변환 예정)";
-
-// XML 특수문자 되돌리기 (&amp; → &)
-const decode = (text) =>
-  text
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&");
-
-// pptx는 사실 zip 파일 → 슬라이드 XML에서 글자만 뽑기
-async function readSlides(file) {
+// pptx는 zip → 슬라이드 XML의 <a:t> 글자만. DOMParser가 &amp; 같은 엔티티도 풀어준다
+const readSlides = async (file) => {
   const zip = await JSZip.loadAsync(file);
-  const names = Object.keys(zip.files)
-    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); // slide2 가 slide10 보다 앞
-
-  return Promise.all(
-    names.map(async (name) => {
-      const xml = await zip.file(name).async("text");
-      return [...xml.matchAll(/<a:t>(.*?)<\/a:t>/gs)] // <a:t>안녕</a:t> 안의 글자
-        .map((found) => decode(found[1]).trim())
-        .filter((text) => text !== "");
-    })
-  );
-}
-
-// 슬라이드 1장 = TC 1줄. 틀(줄 수 + TC ID)만 만들고 칸은 비워둔다.
-// 슬라이드 글자는 엑셀에 넣지 않고, 기능 3에서 AI에게 넘겨 칸을 채우게 한다.
-function toTestCases(slideCount) {
-  return Array.from({ length: slideCount }, (_, index) => ({
-    "TC ID": `TC-${String(index + 1).padStart(3, "0")}`,
-    "대분류": TODO,
-    "중분류": TODO,
-    "테스트 시나리오": TODO,
-    "사전조건": TODO,
-    "테스트 절차": TODO,
-    "기대 결과": TODO,
-    "우선순위": TODO,
-    "결과": "", // 테스트 해보고 Pass/Fail 적는 칸
-    "비고": "",
+  const paths = Object.keys(zip.files)
+    .filter((path) => /^ppt\/slides\/slide\d+\.xml$/.test(path))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); // slide2가 slide10보다 앞
+  return Promise.all(paths.map(async (path) => {
+    const doc = new DOMParser().parseFromString(await zip.file(path).async("text"), "application/xml");
+    if (doc.querySelector("parsererror")) throw new Error(`${path} XML이 깨졌습니다`);
+    return [...doc.getElementsByTagName("a:t")].map((node) => node.textContent).join(" ");
   }));
-}
+};
 
-// 엑셀 파일로 저장
-function saveExcel(rows) {
-  const sheet = XLSX.utils.json_to_sheet(rows, { header: TC_COLUMNS });
+// 슬라이드 1장 = TC 1줄. 설명 없이 JSON 배열만 받는다
+const askClaude = async (slides) => {
+  const prompt = `기획서 슬라이드다. 슬라이드 1장당 테스트케이스 1줄, 총 ${slides.length}줄을 만들어라.
+각 줄은 ${AI_COLUMNS.join(", ")} 키를 가진 JSON 객체다. 설명·코드펜스 없이 JSON 배열만 출력해라.
+
+${slides.map((text, i) => `[슬라이드 ${i + 1}] ${text}`).join("\n")}`;
+
+  const res = await fetch("/api/claude", { method: "POST", body: JSON.stringify({ prompt }) });
+  const text = await res.text();
+  if (!res.ok) throw new Error(text);
+  try { return JSON.parse(text); }
+  catch { console.log("AI 응답 원문:", text); throw new Error("응답이 JSON 배열이 아닙니다"); }
+};
+
+// AI를 믿지 않는다: 모르는 열은 버리고, 빠진 열은 빈칸, TC ID는 다시 매기고, 결과/비고는 비운다
+const toRows = (list) => list.map((row, i) => Object.fromEntries(COLUMNS.map((c) => [c,
+  c === "TC ID" ? `TC-${String(i + 1).padStart(3, "0")}` : AI_COLUMNS.includes(c) ? String(row[c] ?? "") : ""])));
+
+const saveExcel = (rows) => {
   const book = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(book, sheet, "TC");
+  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(rows, { header: COLUMNS }), "TC");
   XLSX.writeFile(book, "testcases.xlsx");
-}
+};
 
-// 버튼을 누르면 pptx 읽기 → TC 틀 만들기 → 엑셀 내려받기
-exportBtn.addEventListener("click", async () => {
-  const file = pptInput.files[0]; // 고른 파일 가져오기
-  if (!file) {
-    statusText.textContent = "pptx 파일을 먼저 골라주세요.";
-    return;
+// 파일 넣고 누르면 → 읽고 → AI 거치고 → 엑셀
+document.querySelector("#export-btn").onclick = async () => {
+  const file = document.querySelector("#ppt-input").files[0];
+  if (!file) return (status.textContent = "pptx 파일을 먼저 골라주세요.");
+  try {
+    status.textContent = "변환 중...";
+    const slides = await step("PPT 읽기", () => readSlides(file));
+    const rows = toRows(await step("AI 변환", () => askClaude(slides)));
+    await step("엑셀 저장", () => saveExcel(rows));
+    status.textContent = `슬라이드 ${slides.length}장 → TC ${rows.length}줄 (testcases.xlsx 저장됨)`;
+  } catch (e) {
+    console.error(e); // cause를 따라가면 진짜 원인이 나온다
+    status.textContent = e.message;
   }
-
-  statusText.textContent = "변환 중...";
-  const slides = await readSlides(file); // 뽑은 글자는 기능 3(AI 변환)에서 쓴다
-  saveExcel(toTestCases(slides.length));
-  statusText.textContent = `슬라이드 ${slides.length}장 → TC ${slides.length}줄 (testcases.xlsx 저장됨)`;
-});
+};

@@ -1,2 +1,5 @@
 # 작업 지시 메모
 prompt*.txt
+
+# Cloudflare 로컬 개발용 키
+.dev.vars
