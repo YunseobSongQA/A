@@ -18,12 +18,13 @@ const findUsableModel = async (key) => {
   const res = await fetch(`${API}/models?key=${key}`);
   if (!res.ok) return null;
   const { models = [] } = await res.json();
-  const usable = models
-    .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
-    .map((m) => m.name.replace(/^models\//, ""))
-    .filter((n) => !/embedding|aqa|tts|image|live|vision/.test(n));
-  // 싸고 빠른 flash 우선, 없으면 아무거나
-  return usable.find((n) => n.includes("flash")) ?? usable[0] ?? null;
+
+  const callable = models.filter((model) => model.supportedGenerationMethods?.includes("generateContent"));
+  const names = callable.map((model) => model.name.replace(/^models\//, "")); // "models/gemini-x" → "gemini-x"
+  const textOnly = names.filter((name) => !/embedding|aqa|tts|image|live|vision/.test(name)); // 글자 못 만드는 모델 제외
+  const flash = textOnly.find((name) => name.includes("flash")); // 싸고 빠른 flash 우선
+
+  return flash ?? textOnly[0] ?? null;
 };
 
 export async function onRequestPost(context) {

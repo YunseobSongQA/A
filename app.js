@@ -1,6 +1,8 @@
 // 기능 1: PRD 입력받기
 document.querySelector("#read-btn").onclick = () => {
-  document.querySelector("#output").textContent = document.querySelector("#prd-input").value;
+  const input = document.querySelector("#prd-input");
+  const output = document.querySelector("#output");
+  output.textContent = input.value;
 };
 
 // 기능 2+3: 기획서(pptx) → Claude(키는 서버에) → 테스트케이스(xlsx)
@@ -29,7 +31,8 @@ const readSlideText = async (zip, path) => {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   if (doc.querySelector("parsererror")) throw new Error(`${path} XML이 깨졌습니다`);
   const textNodes = [...doc.getElementsByTagName("a:t")]; // <a:t>안녕</a:t> 안의 글자
-  return textNodes.map((node) => node.textContent).join(" ");
+  const texts = textNodes.map((node) => node.textContent);
+  return texts.join(" ");
 };
 
 const readSlides = async (file) => {
@@ -39,15 +42,25 @@ const readSlides = async (file) => {
 };
 
 // 슬라이드 1장 = TC 1줄. 설명 없이 JSON 배열만 받는다
+const buildPrompt = (slides) => {
+  const keys = AI_COLUMNS.join(", ");
+  const labeled = slides.map((text, i) => `[슬라이드 ${i + 1}] ${text}`);
+  const body = labeled.join("\n");
+
+  return `기획서 슬라이드다. 슬라이드 1장당 테스트케이스 1줄, 총 ${slides.length}줄을 만들어라.
+각 줄은 ${keys} 키를 가진 JSON 객체다. 설명·코드펜스 없이 JSON 배열만 출력해라.
+
+${body}`;
+};
+
 const askGemini = async (slides) => {
-  const prompt = `기획서 슬라이드다. 슬라이드 1장당 테스트케이스 1줄, 총 ${slides.length}줄을 만들어라.
-각 줄은 ${AI_COLUMNS.join(", ")} 키를 가진 JSON 객체다. 설명·코드펜스 없이 JSON 배열만 출력해라.
+  const prompt = buildPrompt(slides);
+  const body = JSON.stringify({ prompt });
 
-${slides.map((text, i) => `[슬라이드 ${i + 1}] ${text}`).join("\n")}`;
-
-  const res = await fetch("/api/gemini", { method: "POST", body: JSON.stringify({ prompt }) });
+  const res = await fetch("/api/gemini", { method: "POST", body });
   const text = await res.text();
   if (!res.ok) throw new Error(text);
+
   try { return JSON.parse(text); }
   catch { console.log("AI 응답 원문:", text); throw new Error("응답이 JSON 배열이 아닙니다"); }
 };
@@ -67,19 +80,22 @@ const toRow = (row, index) => {
 const toRows = (list) => list.map(toRow);
 
 const saveExcel = (rows) => {
+  const sheet = XLSX.utils.json_to_sheet(rows, { header: COLUMNS });
   const book = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(rows, { header: COLUMNS }), "TC");
+  XLSX.utils.book_append_sheet(book, sheet, "TC");
   XLSX.writeFile(book, "testcases.xlsx");
 };
 
 // 파일 넣고 누르면 → 읽고 → AI 거치고 → 엑셀
 document.querySelector("#export-btn").onclick = async () => {
-  const file = document.querySelector("#ppt-input").files[0];
+  const pptInput = document.querySelector("#ppt-input");
+  const file = pptInput.files[0];
   if (!file) return (status.textContent = "pptx 파일을 먼저 골라주세요.");
   try {
     status.textContent = "변환 중...";
     const slides = await step("PPT 읽기", () => readSlides(file));
-    const rows = toRows(await step("AI 변환", () => askGemini(slides)));
+    const aiList = await step("AI 변환", () => askGemini(slides)); // AI가 준 날것
+    const rows = toRows(aiList); // 우리 열 규격으로 강제
     await step("엑셀 저장", () => saveExcel(rows));
     status.textContent = `슬라이드 ${slides.length}장 → TC ${rows.length}줄 (testcases.xlsx 저장됨)`;
   } catch (e) {
