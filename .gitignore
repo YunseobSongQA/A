@@ -3,3 +3,6 @@ prompt*.txt
 
 # Cloudflare 로컬 개발용 키
 .dev.vars
+
+# Cloudflare 로컬 개발 캐시 (wrangler pages dev)
+.wrangler/

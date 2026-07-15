@@ -1,22 +1,32 @@
+// 서버 함수: /gemini 주소를 만들고 Gemini 키를 "서버에만" 둔다
+// 로그는 브라우저가 아니라 `wrangler pages dev`를 띄운 터미널에 뜬다
+
 const API = "https://generativelanguage.googleapis.com/v1beta";
 
 // responseMimeType은 v1beta에만 있는 필드다. v1로 부르면 400이 난다
-const generate = (model, key, prompt) =>
-  fetch(`${API}/models/${model}:generateContent?key=${key}`, {
+const generate = (model, key, prompt) => {
+  console.log("[generate] model:", model);
+  const response = fetch(`${API}/models/${model}:generateContent?key=${key}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
-        responseMimeType: "application/json" // 결과물로 순수 JSON만 받도록 강제
-      }
-    })
+        responseMimeType: "application/json", // 결과물로 순수 JSON만 받도록 강제
+      },
+    }),
   });
+  console.log("[generate] response(대기 중):", response);
+  return response;
+};
 
 // 구글이 옛 모델을 계속 잘라내서 이름이 404가 난다. 그때는 키로 쓸 수 있는 모델을 직접 물어본다
 const findUsableModel = async (key) => {
+  console.log("[findUsableModel] key 있음:", Boolean(key));
   const res = await fetch(`${API}/models?key=${key}`);
-  if (!res.ok) return null;
+  if (!res.ok) {
+    return null;
+  }
   const { models = [] } = await res.json();
 
   const callable = models.filter((model) => model.supportedGenerationMethods?.includes("generateContent"));
@@ -24,10 +34,13 @@ const findUsableModel = async (key) => {
   const textOnly = names.filter((name) => !/embedding|aqa|tts|image|live|vision/.test(name)); // 글자 못 만드는 모델 제외
   const flash = textOnly.find((name) => name.includes("flash")); // 싸고 빠른 flash 우선
 
-  return flash ?? textOnly[0] ?? null;
+  const chosen = flash ?? textOnly[0] ?? null;
+  console.log("[findUsableModel] chosen:", chosen);
+  return chosen;
 };
 
 export async function onRequestPost(context) {
+  console.log("[onRequestPost] context 도착");
   try {
     const { request, env } = context;
     const { prompt } = await request.json();
@@ -60,10 +73,12 @@ export async function onRequestPost(context) {
       return new Response(`구글 API 응답에 결과가 없습니다: ${JSON.stringify(data)}`, { status: 502 });
     }
 
-    return new Response(aiText, {
-      headers: { "Content-Type": "application/json; charset=utf-8" }
+    // 성공 경로: 이름 있는 결과를 한 번 만들어 return 한다
+    const result = new Response(aiText, {
+      headers: { "Content-Type": "application/json; charset=utf-8" },
     });
-
+    console.log("[onRequestPost] result 상태:", result.status);
+    return result;
   } catch (e) {
     return new Response(`백엔드 서버 에러: ${e.message}`, { status: 500 });
   }
