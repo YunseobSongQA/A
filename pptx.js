@@ -18,9 +18,15 @@ const readSlideText = async (zip, path) => {
   if (doc.querySelector("parsererror")) {
     throw new Error(`${path} XML이 깨졌습니다`);
   }
-  const textNodes = [...doc.getElementsByTagName("a:t")]; // <a:t>안녕</a:t> 안의 글자
-  const texts = textNodes.map((node) => node.textContent);
-  const text = texts.join(" ");
+  // 문단(a:p) = 표의 셀 1칸 / 글머리 1줄. 문단별로 끊어야 요구사항 표의 행들이 한 덩어리로 뭉개지지 않는다
+  const paragraphs = [...doc.getElementsByTagName("a:p")];
+  const lines = paragraphs.map((paragraph) => {
+    const textNodes = [...paragraph.getElementsByTagName("a:t")]; // <a:t>안녕</a:t> 안의 글자
+    const texts = textNodes.map((node) => node.textContent);
+    return texts.join("");
+  });
+  const filled = lines.filter((line) => line.trim() !== ""); // 빈 문단은 버린다
+  const text = filled.join("\n");
   console.log("[readSlideText] text:", text);
   return text;
 };

@@ -13,6 +13,7 @@ const generate = (model, key, prompt) => {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: "application/json", // 결과물로 순수 JSON만 받도록 강제
+        maxOutputTokens: 8192, // 요구사항마다 TC 여러 개면 응답이 길어진다. 기본값에 잘려 배열이 깨지지 않게 넉넉히
       },
     }),
   });
