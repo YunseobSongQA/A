@@ -1,10 +1,11 @@
-// 화면 연결: 읽기 버튼(기능1)과 엑셀로 내보내기 버튼(기능2+3 파이프라인)
+// 화면 연결: 엑셀로 내보내기 버튼(기능2+3 파이프라인)
 // index.html이 부르는 유일한 모듈. 나머지 기능은 여기서 import 한다.
 
 import { readSlides } from "./pptx.js";
 import { askGemini } from "./ai.js";
 import { toRows } from "./testcase.js";
 import { saveExcel } from "./excel.js";
+import { renderTable } from "./table.js";
 
 const status = document.querySelector("#status");
 
@@ -23,14 +24,6 @@ const step = async (name, task) => {
   }
 };
 
-// 기능 1: PRD 입력받기
-document.querySelector("#read-btn").onclick = () => {
-  const input = document.querySelector("#prd-input");
-  const output = document.querySelector("#output");
-  console.log("[read-btn] value:", input.value);
-  output.textContent = input.value;
-};
-
 // 기능 2+3: 파일 넣고 누르면 → 읽고 → AI 거치고 → 엑셀
 document.querySelector("#export-btn").onclick = async () => {
   const pptInput = document.querySelector("#ppt-input");
@@ -45,6 +38,7 @@ document.querySelector("#export-btn").onclick = async () => {
     const slides = await step("PPT 읽기", () => readSlides(file));
     const aiList = await step("AI 변환", () => askGemini(slides)); // AI가 준 날것
     const rows = toRows(aiList); // 우리 열 규격으로 강제
+    renderTable(rows);
     await step("엑셀 저장", () => saveExcel(rows));
     status.textContent = `슬라이드 ${slides.length}장 → TC ${rows.length}줄 (testcases.xlsx 저장됨)`;
   } catch (e) {
